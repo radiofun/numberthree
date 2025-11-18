@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organic Particles - 3</title>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #root {
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            pointer-events: none;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 20px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- Configuration ---
+        const PARTICLE_COUNT = 1500;
+        const FONT_SIZE_RATIO = 0.6;
+        const MOUSE_RADIUS = 100;
+        const MOUSE_FORCE = 3.0;
+        const RETURN_SPEED = 0.008;
+        const FRICTION = 0.95;
+        const FORMATION_DURATION = 4000;
+
+        // --- Color Schemes ---
+        const COLOR_SCHEMES = [
+            {
+                name: "Nebula Fire",
+                colors: ['#FF4D4D', '#FF9E4D', '#FFEA4D', '#FF4D94']
+            },
+            {
+                name: "Oceanic Depth",
+                colors: ['#4DFFEA', '#4D94FF', '#4D4DFF', '#9E4DFF']
+            },
+            {
+                name: "Forest Spirit",
+                colors: ['#4DFF9E', '#ADFF4D', '#4DFF4D', '#4DFFD9']
+            }
+        ];
+
+        // --- Utilities ---
+        const randomRange = (min, max) => Math.random() * (max - min) + min;
+        const lerp = (start, end, t) => start * (1 - t) + end * t;
+
+        const easeInOutCubic = (x) => {
+            return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+        };
+
+        const hexToRgb = (hex) => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : { r: 255, g: 255, b: 255 };
+        };
+
+        // --- Particle Class ---
+        class Particle {
+            constructor(x, y, targetX, targetY, hexColor) {
+                this.x = Math.random() * window.innerWidth;
+                this.y = Math.random() * window.innerHeight;
+                this.startX = this.x;
+                this.startY = this.y;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.vx = 0;
+                this.vy = 0;
+                this.size = randomRange(1.5, 3.5);
+
+                const rgb = hexToRgb(hexColor);
+                this.r = rgb.r;
+                this.g = rgb.g;
+                this.b = rgb.b;
+                this.targetR = rgb.r;
+                this.targetG = rgb.g;
+                this.targetB = rgb.b;
+
+                this.angle = Math.random() * Math.PI * 2;
+                this.angleSpeed = randomRange(-0.05, 0.05);
+                this.wobble = randomRange(0, 100);
+            }
+
+            setTargetColor(hexColor) {
+                const rgb = hexToRgb(hexColor);
+                this.targetR = rgb.r;
+                this.targetG = rgb.g;
+                this.targetB = rgb.b;
+            }
+
+            update(mouseX, mouseY, width, height, time, elapsed) {
+                // Color Interpolation
+                const colorSpeed = 0.02;
+                this.r += (this.targetR - this.r) * colorSpeed;
+                this.g += (this.targetG - this.g) * colorSpeed;
+                this.b += (this.targetB - this.b) * colorSpeed;
+
+                // Initial Formation (Ease In Out)
+                if (elapsed < FORMATION_DURATION) {
+                    const progress = elapsed / FORMATION_DURATION;
+                    const t = easeInOutCubic(progress);
+
+                    this.x = lerp(this.startX, this.targetX, t);
+                    this.y = lerp(this.startY, this.targetY, t);
+
+                    this.x += Math.sin(time * 0.002 + this.wobble) * 0.2;
+                    this.y += Math.cos(time * 0.003 + this.wobble) * 0.2;
+
+                    this.vx = 0;
+                    this.vy = 0;
+                    return;
+                }
+
+                // Calculate distance from center (Stability Factor)
+                const centerX = width / 2;
+                const centerY = height / 2;
+                const distFromCenter = Math.sqrt((this.x - centerX) ** 2 + (this.y - centerY) ** 2);
+                const maxDist = Math.min(width, height) * 0.8;
+
+                let stability = Math.min(distFromCenter / maxDist, 1);
+                stability = Math.pow(stability, 2);
+
+                // Seek Target
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+
+                // Organic wobble - Scaled by stability
+                const wobbleAmp = 0.01 + (stability * 1.5);
+                const wobbleX = Math.sin(time * 0.0002 + this.wobble) * wobbleAmp;
+                const wobbleY = Math.cos(time * 0.0003 + this.wobble) * wobbleAmp;
+
+                let ax = dx * RETURN_SPEED + wobbleX;
+                let ay = dy * RETURN_SPEED + wobbleY;
+
+                // Mouse Repulsion
+                const distMouseX = this.x - mouseX;
+                const distMouseY = this.y - mouseY;
+                const distMouse = Math.sqrt(distMouseX * distMouseX + distMouseY * distMouseY);
+
+                if (distMouse < MOUSE_RADIUS) {
+                    const force = (MOUSE_RADIUS - distMouse) / MOUSE_RADIUS;
+                    const angle = Math.atan2(distMouseY, distMouseX);
+                    const pushMultiplier = 0.1 + (stability * 0.1);
+
+                    ax += Math.cos(angle) * force * MOUSE_FORCE * 4 * pushMultiplier;
+                    ay += Math.sin(angle) * force * MOUSE_FORCE * 4 * pushMultiplier;
+                }
+
+                // Integrate
+                this.vx += ax;
+                this.vy += ay;
+                this.vx *= FRICTION;
+                this.vy *= FRICTION;
+
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgb(${Math.round(this.r)}, ${Math.round(this.g)}, ${Math.round(this.b)})`;
+                ctx.fill();
+            }
+        }
+
+        // --- Main Component ---
+        const App = () => {
+            const canvasRef = useRef(null);
+            const [schemeIndex, setSchemeIndex] = useState(0);
+            const requestRef = useRef();
+            const particlesRef = useRef([]);
+            const mouseRef = useRef({ x: -9999, y: -9999 });
+            const startTimeRef = useRef(null);
+
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    setSchemeIndex(prev => (prev + 1) % COLOR_SCHEMES.length);
+                }, 5000);
+                return () => clearInterval(interval);
+            }, []);
+
+            useEffect(() => {
+                const scheme = COLOR_SCHEMES[schemeIndex];
+                if (particlesRef.current.length > 0) {
+                    particlesRef.current.forEach(p => {
+                        const newColor = scheme.colors[Math.floor(Math.random() * scheme.colors.length)];
+                        p.setTargetColor(newColor);
+                    });
+                }
+            }, [schemeIndex]);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+
+                let width = window.innerWidth;
+                let height = window.innerHeight;
+                canvas.width = width;
+                canvas.height = height;
+
+                const samplePoints = () => {
+                    const offCanvas = document.createElement('canvas');
+                    offCanvas.width = width;
+                    offCanvas.height = height;
+                    const offCtx = offCanvas.getContext('2d');
+
+                    const fontSize = Math.min(width, height) * FONT_SIZE_RATIO;
+                    offCtx.font = `bold ${fontSize}px Inter, sans-serif`;
+                    offCtx.fillStyle = 'white';
+                    offCtx.textAlign = 'center';
+                    offCtx.textBaseline = 'middle';
+                    offCtx.fillText('3', width / 2, height / 2);
+
+                    const imageData = offCtx.getImageData(0, 0, width, height);
+                    const data = imageData.data;
+                    const points = [];
+
+                    const step = 4;
+                    for (let y = 0; y < height; y += step) {
+                        for (let x = 0; x < width; x += step) {
+                            const index = (y * width + x) * 4;
+                            if (data[index + 3] > 128) {
+                                points.push({ x, y });
+                            }
+                        }
+                    }
+                    return points;
+                };
+
+                const points = samplePoints();
+                const newParticles = [];
+                const scheme = COLOR_SCHEMES[schemeIndex];
+
+                for (let i = 0; i < PARTICLE_COUNT; i++) {
+                    const target = points[Math.floor(Math.random() * points.length)];
+                    const tx = target ? target.x : width / 2;
+                    const ty = target ? target.y : height / 2;
+                    const color = scheme.colors[Math.floor(Math.random() * scheme.colors.length)];
+                    newParticles.push(new Particle(width / 2, height / 2, tx, ty, color));
+                }
+                particlesRef.current = newParticles;
+
+                const animate = (time) => {
+                    if (!startTimeRef.current) startTimeRef.current = time;
+                    const elapsed = time - startTimeRef.current;
+
+                    ctx.fillStyle = 'rgba(5, 5, 5, 0.2)';
+                    ctx.fillRect(0, 0, width, height);
+
+                    particlesRef.current.forEach(p => {
+                        p.update(mouseRef.current.x, mouseRef.current.y, width, height, time, elapsed);
+                        p.draw(ctx);
+                    });
+
+                    requestRef.current = requestAnimationFrame(animate);
+                };
+
+                requestRef.current = requestAnimationFrame(animate);
+
+                const handleResize = () => {
+                    width = window.innerWidth;
+                    height = window.innerHeight;
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const newPoints = samplePoints();
+                    particlesRef.current.forEach(p => {
+                        const target = newPoints[Math.floor(Math.random() * newPoints.length)];
+                        if (target) {
+                            p.targetX = target.x;
+                            p.targetY = target.y;
+                        }
+                    });
+                };
+
+                window.addEventListener('resize', handleResize);
+                return () => {
+                    window.removeEventListener('resize', handleResize);
+                    cancelAnimationFrame(requestRef.current);
+                };
+            }, []);
+
+            const handleMouseMove = (e) => {
+                mouseRef.current = { x: e.clientX, y: e.clientY };
+            };
+
+            return (
+                <div onMouseMove={handleMouseMove} style={{ width: '100%', height: '100%' }}>
+                    <canvas ref={canvasRef} />
+                    <div className="ui-overlay">
+                        Current Theme: <strong>{COLOR_SCHEMES[schemeIndex].name}</strong>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
